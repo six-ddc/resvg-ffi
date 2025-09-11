@@ -26,17 +26,15 @@ function M.init_log()
 end
 
 --- Returns version information
+--- Version is hardcoded to match the library build
 --- @return table Version information with major, minor, patch and string fields
 --- @function version
 function M.version()
     return {
-        major = ffi_defs.C.RESVG_MAJOR_VERSION,
-        minor = ffi_defs.C.RESVG_MINOR_VERSION,
-        patch = ffi_defs.C.RESVG_PATCH_VERSION,
-        string = string.format("%d.%d.%d",
-            ffi_defs.C.RESVG_MAJOR_VERSION,
-            ffi_defs.C.RESVG_MINOR_VERSION,
-            ffi_defs.C.RESVG_PATCH_VERSION)
+        major = 0,
+        minor = 45,
+        patch = 1,
+        string = "0.45.1"
     }
 end
 
@@ -70,6 +68,9 @@ end
 --- @return Options Self for method chaining
 --- @function Options:set_dpi
 function Options:set_dpi(dpi)
+    if type(dpi) ~= "number" or dpi <= 0 or dpi ~= dpi then -- Check for NaN
+        error("DPI must be a positive number", 2)
+    end
     C.resvg_options_set_dpi(self.ptr, dpi)
     return self
 end
@@ -89,6 +90,12 @@ end
 --- @return Options Self for method chaining
 --- @function Options:set_font_family
 function Options:set_font_family(family)
+    if type(family) ~= "string" then
+        error("Font family must be a string", 2)
+    end
+    if family == "" then
+        error("Font family cannot be empty", 2)
+    end
     C.resvg_options_set_font_family(self.ptr, family)
     return self
 end
@@ -99,6 +106,9 @@ end
 --- @return Options Self for method chaining
 --- @function Options:set_font_size
 function Options:set_font_size(size)
+    if type(size) ~= "number" or size <= 0 or size ~= size then -- Check for NaN
+        error("Font size must be a positive number", 2)
+    end
     C.resvg_options_set_font_size(self.ptr, size)
     return self
 end
@@ -204,7 +214,15 @@ end
 --- @return Options Self for method chaining
 --- @function Options:load_font_data
 function Options:load_font_data(data)
-    C.resvg_options_load_font_data(self.ptr, data, #data)
+    if type(data) ~= "string" then
+        error("Font data must be a string", 2)
+    end
+    if #data == 0 then
+        error("Font data cannot be empty", 2)
+    end
+    -- Use the actual byte length, not string length which might be wrong for binary data
+    local data_len = #data
+    C.resvg_options_load_font_data(self.ptr, data, data_len)
     return self
 end
 
@@ -216,6 +234,12 @@ end
 --- @return string|nil Error message if failed
 --- @function Options:load_font_file
 function Options:load_font_file(filepath)
+    if type(filepath) ~= "string" then
+        return nil, "File path must be a string"
+    end
+    if filepath == "" then
+        return nil, "File path cannot be empty"
+    end
     local code = C.resvg_options_load_font_file(self.ptr, filepath)
     return utils.check_error(code)
 end
@@ -246,6 +270,13 @@ Tree.__index = Tree
 --- @return string|nil Error message if failed
 --- @function Tree.from_file
 function Tree.from_file(filepath, options)
+    if type(filepath) ~= "string" then
+        return nil, "File path must be a string"
+    end
+    if filepath == "" then
+        return nil, "File path cannot be empty"
+    end
+    
     local opt_ptr = options and options.ptr or Options.new().ptr
     local tree_ptr = ffi.new("resvg_render_tree*[1]")
     local code = C.resvg_parse_tree_from_file(filepath, opt_ptr, tree_ptr)
@@ -267,6 +298,13 @@ end
 --- @return string|nil Error message if failed
 --- @function Tree.from_data
 function Tree.from_data(data, options)
+    if type(data) ~= "string" then
+        return nil, "SVG data must be a string"
+    end
+    if #data == 0 then
+        return nil, "SVG data cannot be empty"
+    end
+    
     local opt_ptr = options and options.ptr or Options.new().ptr
     local tree_ptr = ffi.new("resvg_render_tree*[1]")
     local code = C.resvg_parse_tree_from_data(data, #data, opt_ptr, tree_ptr)
@@ -333,6 +371,12 @@ end
 --- @return boolean true if node exists and is renderable, false otherwise
 --- @function Tree:node_exists
 function Tree:node_exists(id)
+    if type(id) ~= "string" then
+        return false
+    end
+    if id == "" then
+        return false
+    end
     return C.resvg_node_exists(self.ptr, id)
 end
 
@@ -341,6 +385,9 @@ end
 --- @return table|nil Transform table with a,b,c,d,e,f fields, or nil if node doesn't exist or isn't renderable
 --- @function Tree:get_node_transform
 function Tree:get_node_transform(id)
+    if type(id) ~= "string" or id == "" then
+        return nil
+    end
     local transform = ffi.new("resvg_transform")
     local success = C.resvg_get_node_transform(self.ptr, id, transform)
     if success then
@@ -354,6 +401,9 @@ end
 --- @return table|nil Bounding box table with x, y, width, height fields, or nil if node doesn't exist
 --- @function Tree:get_node_bbox
 function Tree:get_node_bbox(id)
+    if type(id) ~= "string" or id == "" then
+        return nil
+    end
     local bbox = ffi.new("resvg_rect")
     local success = C.resvg_get_node_bbox(self.ptr, id, bbox)
     if success then
@@ -367,6 +417,9 @@ end
 --- @return table|nil Bounding box table with x, y, width, height fields, or nil if node doesn't exist
 --- @function Tree:get_node_stroke_bbox
 function Tree:get_node_stroke_bbox(id)
+    if type(id) ~= "string" or id == "" then
+        return nil
+    end
     local bbox = ffi.new("resvg_rect")
     local success = C.resvg_get_node_stroke_bbox(self.ptr, id, bbox)
     if success then
@@ -382,6 +435,17 @@ end
 --- @return Pixmap Rendered pixmap with premultiplied RGBA8888 pixels
 --- @function Tree:render
 function Tree:render(width, height, transform)
+    -- Validate input dimensions
+    if type(width) ~= "number" or type(height) ~= "number" then
+        error("Width and height must be numbers", 2)
+    end
+    if width <= 0 or height <= 0 then
+        error("Width and height must be positive", 2)
+    end
+    if width > 65535 or height > 65535 then
+        error("Width and height must be less than 65536", 2)
+    end
+    
     width = math.floor(width)
     height = math.floor(height)
 
@@ -422,6 +486,23 @@ end
 --- @return string|nil Error message if failed
 --- @function Tree:render_node
 function Tree:render_node(id, width, height, transform)
+    -- Validate input parameters
+    if type(id) ~= "string" then
+        return nil, "Node ID must be a string"
+    end
+    if id == "" then
+        return nil, "Node ID cannot be empty"
+    end
+    if type(width) ~= "number" or type(height) ~= "number" then
+        return nil, "Width and height must be numbers"
+    end
+    if width <= 0 or height <= 0 then
+        return nil, "Width and height must be positive"
+    end
+    if width > 65535 or height > 65535 then
+        return nil, "Width and height must be less than 65536"
+    end
+    
     width = math.floor(width)
     height = math.floor(height)
 
@@ -450,7 +531,7 @@ function Tree:render_node(id, width, height, transform)
     local success = C.resvg_render_node(self.ptr, id, t, width, height, pixmap)
 
     if not success then
-        return nil, "Failed to render node"
+        return nil, "Failed to render node: node may not exist or be renderable"
     end
 
     --- Return Pixmap object
@@ -481,6 +562,14 @@ end
 --- @return Transform New transform
 --- @function Transform.new
 function Transform.new(a, b, c, d, e, f)
+    -- Validate all parameters are numbers
+    local params = {a, b, c, d, e, f}
+    for i, param in ipairs(params) do
+        if type(param) ~= "number" or param ~= param then -- Check for NaN
+            error(string.format("Transform parameter %d must be a valid number", i), 2)
+        end
+    end
+    
     local self = setmetatable({}, Transform)
     self.data = utils.table_to_transform({ a, b, c, d, e, f })
     return self
@@ -492,6 +581,13 @@ end
 --- @return Transform Translation transform
 --- @function Transform.translate
 function Transform.translate(x, y)
+    if type(x) ~= "number" or type(y) ~= "number" then
+        error("Translation parameters must be numbers", 2)
+    end
+    if x ~= x or y ~= y then -- Check for NaN
+        error("Translation parameters cannot be NaN", 2)
+    end
+    
     local self = setmetatable({}, Transform)
     self.data = utils.create_translate_transform(x, y)
     return self
@@ -503,6 +599,16 @@ end
 --- @return Transform Scale transform
 --- @function Transform.scale
 function Transform.scale(sx, sy)
+    if type(sx) ~= "number" then
+        error("Horizontal scaling factor must be a number", 2)
+    end
+    if sx ~= sx then -- Check for NaN
+        error("Horizontal scaling factor cannot be NaN", 2)
+    end
+    if sy and (type(sy) ~= "number" or sy ~= sy) then
+        error("Vertical scaling factor must be a valid number", 2)
+    end
+    
     local self = setmetatable({}, Transform)
     self.data = utils.create_scale_transform(sx, sy)
     return self
@@ -515,6 +621,16 @@ end
 --- @return Transform Rotation transform
 --- @function Transform.rotate
 function Transform.rotate(angle, cx, cy)
+    if type(angle) ~= "number" or angle ~= angle then
+        error("Rotation angle must be a valid number", 2)
+    end
+    if cx and (type(cx) ~= "number" or cx ~= cx) then
+        error("Center X coordinate must be a valid number", 2)
+    end
+    if cy and (type(cy) ~= "number" or cy ~= cy) then
+        error("Center Y coordinate must be a valid number", 2)
+    end
+    
     local self = setmetatable({}, Transform)
     self.data = utils.create_rotate_transform(angle, cx, cy)
     return self
@@ -525,6 +641,9 @@ end
 --- @return Transform Result of matrix multiplication
 --- @function Transform:multiply
 function Transform:multiply(other)
+    if not other or not other.data then
+        error("Transform multiply requires another Transform object", 2)
+    end
     local result = setmetatable({}, Transform)
     result.data = utils.multiply_transforms(self.data, other.data)
     return result
@@ -552,6 +671,19 @@ Pixmap.__index = Pixmap
 --- @return Pixmap New pixmap with uninitialized data
 --- @function Pixmap.new
 function Pixmap.new(width, height)
+    if type(width) ~= "number" or type(height) ~= "number" then
+        error("Width and height must be numbers", 2)
+    end
+    if width <= 0 or height <= 0 then
+        error("Width and height must be positive", 2)
+    end
+    if width > 65535 or height > 65535 then
+        error("Width and height must be less than 65536", 2)
+    end
+    
+    width = math.floor(width)
+    height = math.floor(height)
+    
     local self = setmetatable({}, Pixmap)
     self.width = width
     self.height = height
@@ -580,11 +712,32 @@ end
 --- @return Pixmap New pixmap with copied data
 --- @function Pixmap.from_data
 function Pixmap.from_data(data, width, height)
+    if type(data) ~= "string" then
+        error("Data must be a string", 2)
+    end
+    if type(width) ~= "number" or type(height) ~= "number" then
+        error("Width and height must be numbers", 2)
+    end
+    if width <= 0 or height <= 0 then
+        error("Width and height must be positive", 2)
+    end
+    if width > 65535 or height > 65535 then
+        error("Width and height must be less than 65536", 2)
+    end
+    
+    width = math.floor(width)
+    height = math.floor(height)
+    
+    local expected_size = width * height * 4
+    if #data ~= expected_size then
+        error(string.format("Data size mismatch: expected %d bytes, got %d", expected_size, #data), 2)
+    end
+    
     local self = setmetatable({}, Pixmap)
     self.width = width
     self.height = height
-    self.data = ffi.new("char[?]", width * height * 4)
-    ffi.copy(self.data, data, width * height * 4)
+    self.data = ffi.new("char[?]", expected_size)
+    ffi.copy(self.data, data, expected_size)
     return self
 end
 
@@ -599,21 +752,20 @@ end
 --- @return string RGB pixel data as binary string
 --- @function Pixmap:to_rgb
 function Pixmap:to_rgb()
-    local rgb_data = {}
+    local rgb_size = self.width * self.height * 3
+    local rgb_data = ffi.new("char[?]", rgb_size)
     local src = self.data
 
-    for y = 0, self.height - 1 do
-        for x = 0, self.width - 1 do
-            local offset = (y * self.width + x) * 4
-            table.insert(rgb_data, string.char(
-                src[offset],     --- R component
-                src[offset + 1], --- G component
-                src[offset + 2]  --- B component
-            ))
-        end
+    local rgb_idx = 0
+    for i = 0, self.width * self.height - 1 do
+        local rgba_offset = i * 4
+        rgb_data[rgb_idx] = src[rgba_offset]     -- R component
+        rgb_data[rgb_idx + 1] = src[rgba_offset + 1] -- G component
+        rgb_data[rgb_idx + 2] = src[rgba_offset + 2] -- B component
+        rgb_idx = rgb_idx + 3
     end
 
-    return table.concat(rgb_data)
+    return ffi.string(rgb_data, rgb_size)
 end
 
 --- Converts pixmap to BGRA format

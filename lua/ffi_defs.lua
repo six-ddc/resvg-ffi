@@ -5,10 +5,8 @@
 local ffi = require("ffi")
 
 ffi.cdef [[
-    // Version information
-    static const int RESVG_MAJOR_VERSION = 0;
-    static const int RESVG_MINOR_VERSION = 45;
-    static const int RESVG_PATCH_VERSION = 1;
+    // Version information - these should be accessed from the C library header
+    // Not defined here to avoid version mismatches
 
     // List of possible errors
     typedef enum {

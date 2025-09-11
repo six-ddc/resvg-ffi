@@ -188,26 +188,42 @@ function M.load_library()
 
     --- Try multiple possible paths
     local paths = {
-        lib_name,                                  --- Current directory
+        "./" .. lib_name,                          --- Current directory with explicit ./
+        lib_name,                                  --- Current directory (system path)
         "./lua/" .. lib_name,                      --- lua subdirectory
         "../../target/release/" .. lib_name,       --- Rust release build directory
         "../../target/debug/" .. lib_name,         --- Rust debug build directory
-        package.searchpath and
-        package.searchpath("resvg", package.cpath) --- Lua package path
     }
-
-    for _, path in ipairs(paths) do
-        if path then
-            local ok, result = pcall(ffi.load, path)
-            if ok and result then
-                print("Loaded resvg library from: " .. path)
-                return result
-            end
+    
+    -- Add package path search if available
+    if package.searchpath then
+        local pkg_path = package.searchpath("resvg", package.cpath)
+        if pkg_path then
+            table.insert(paths, pkg_path)
         end
     end
 
-    --- If all fail, let FFI use system paths
-    return ffi.load("resvg")
+    local last_error = ""
+    for _, path in ipairs(paths) do
+        local ok, result = pcall(ffi.load, path)
+        if ok and result then
+            -- Successfully loaded library
+            return result
+        else
+            last_error = result or "unknown error"
+        end
+    end
+
+    --- If all fail, try system paths as last resort
+    local ok, result = pcall(ffi.load, "resvg")
+    if ok and result then
+        return result
+    end
+    
+    --- All attempts failed, provide helpful error message
+    error(string.format(
+        "Failed to load resvg library. Tried paths: %s. Last error: %s", 
+        table.concat(paths, ", "), last_error or "system load failed"), 2)
 end
 
 --- Create identity transform

@@ -393,7 +393,12 @@ function Tree:render(width, height, transform)
     local t
     if transform then
         if type(transform) == "table" then
-            t = utils.table_to_transform(transform)
+            -- Accept either a plain matrix table {a,b,c,d,e,f} or a Transform instance with `.data`
+            if transform.data then
+                t = transform.data
+            else
+                t = utils.table_to_transform(transform)
+            end
         else
             t = transform
         end
@@ -428,7 +433,12 @@ function Tree:render_node(id, width, height, transform)
     local t
     if transform then
         if type(transform) == "table" then
-            t = utils.table_to_transform(transform)
+            -- Accept either a plain matrix table {a,b,c,d,e,f} or a Transform instance with `.data`
+            if transform.data then
+                t = transform.data
+            else
+                t = utils.table_to_transform(transform)
+            end
         else
             t = transform
         end

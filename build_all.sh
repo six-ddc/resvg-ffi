@@ -4,6 +4,17 @@ set -euo pipefail
 # Project root & output directory
 ROOT_DIR=$(cd "$(dirname "$0")" && pwd)
 OUT_DIR=${OUT_DIR:-"$ROOT_DIR/prebuilt"}
+
+# Set custom linkers for cross-compilation (if needed)
+# brew tap messense/macos-cross-toolchains
+# # install x86_64-unknown-linux-gnu toolchain
+# brew install x86_64-unknown-linux-gnu
+# # install aarch64-unknown-linux-gnu toolchain
+# brew install aarch64-unknown-linux-gnu
+export PATH=$(brew --prefix aarch64-unknown-linux-gnu)/bin:$PATH
+export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc
+export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+
 mkdir -p "$OUT_DIR"
 
 info() { echo -e "\033[1;34m[INFO]\033[0m $*"; }
@@ -52,10 +63,10 @@ ANDROID_TRIPLES=(
 )
 
 NON_ANDROID_TRIPLES=(
-    "aarch64-unknown-linux-musl"    # Linux ARM64
+    "x86_64-unknown-linux-gnu"      # Linux x64
+    "aarch64-unknown-linux-gnu"     # Linux ARM64
     "aarch64-apple-darwin"          # macOS ARM64
     "x86_64-apple-darwin"           # macOS Intel
-    "x86_64-pc-windows-gnu"         # Windows x64 (GNU)
 )
 
 try_build_target() {

@@ -27,7 +27,7 @@ copy_lib() {
     local libpath_lib="$ROOT_DIR/target/$triple/release/resvg.dll" # Windows naming
     local libpath_dylib="$ROOT_DIR/target/$triple/release/libresvg.dylib" # macOS naming
     local dest="$OUT_DIR/$triple"
-    
+
     local chosen=""
     if [[ -f "$libpath_a" ]]; then
         chosen="$libpath_a"
@@ -36,13 +36,28 @@ copy_lib() {
         elif [[ -f "$libpath_dylib" ]]; then
         chosen="$libpath_dylib"
     fi
-    
+
     if [[ -n "$chosen" ]]; then
         mkdir -p "$dest"
         cp -f "$chosen" "$dest/"
         info "Exported $triple -> $dest/$(basename "$chosen")"
     else
         warn "Artifact not found: $libpath_a or $libpath_lib (skip)"
+    fi
+}
+
+copy_android_lib() {
+    local triple="$1"
+    local abi="$2"
+    local libpath_so="$ROOT_DIR/target/$triple/release/libresvg.so"
+    local dest="$OUT_DIR/jniLibs/$abi"
+
+    if [[ -f "$libpath_so" ]]; then
+        mkdir -p "$dest"
+        cp -f "$libpath_so" "$dest/"
+        info "Exported Android $abi -> $dest/"
+    else
+        warn "Android artifact not found: $libpath_so (skip)"
     fi
 }
 
@@ -56,10 +71,15 @@ export_headers() {
 ANDROID_ABIS=(
     "armeabi-v7a"
     "arm64-v8a"
+    "x86"
+    "x86_64"
 )
+
 ANDROID_TRIPLES=(
     "armv7-linux-androideabi"
     "aarch64-linux-android"
+    "i686-linux-android"
+    "x86_64-linux-android"
 )
 
 NON_ANDROID_TRIPLES=(
@@ -85,6 +105,9 @@ try_build_target() {
 }
 
 # Build Android (if cargo-ndk is available)
+for t in "${ANDROID_TRIPLES[@]}"; do
+    rustup target add "$t" >/dev/null 2>&1
+done
 if command -v cargo-ndk >/dev/null 2>&1; then
     info "Building Android (${ANDROID_ABIS[*]})..."
     set +e
@@ -105,8 +128,14 @@ done
 
 info "Build phase finished; staging artifacts..."
 
-# Export artifacts per target
-for t in "${ANDROID_TRIPLES[@]}"; do copy_lib "$t"; done
+# Export Android artifacts to jniLibs structure
+for i in "${!ANDROID_TRIPLES[@]}"; do
+    triple="${ANDROID_TRIPLES[$i]}"
+    abi="${ANDROID_ABIS[$i]}"
+    copy_android_lib "$triple" "$abi"
+done
+
+# Export other targets
 for t in "${NON_ANDROID_TRIPLES[@]}"; do copy_lib "$t"; done
 
 # Export headers

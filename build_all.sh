@@ -21,6 +21,84 @@ info() { echo -e "\033[1;34m[INFO]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[WARN]\033[0m $*"; }
 err()  { echo -e "\033[1;31m[ERR ]\033[0m $*"; }
 
+strip_lib() {
+    local file="$1"
+    local triple="$2"
+
+    if [[ ! -f "$file" ]]; then
+        return
+    fi
+
+    local strip_cmd=""
+    local strip_args=""
+
+    # Determine the appropriate strip command based on target triple
+    case "$triple" in
+        *-apple-darwin)
+            # macOS: use native strip with -x (preserve external symbols)
+            strip_cmd="strip"
+            strip_args="-x"
+            ;;
+        x86_64-unknown-linux-gnu)
+            # Linux x86_64
+            if command -v x86_64-linux-gnu-strip >/dev/null 2>&1; then
+                strip_cmd="x86_64-linux-gnu-strip"
+            elif command -v strip >/dev/null 2>&1; then
+                strip_cmd="strip"
+            fi
+            ;;
+        aarch64-unknown-linux-gnu)
+            # Linux ARM64
+            if command -v aarch64-linux-gnu-strip >/dev/null 2>&1; then
+                strip_cmd="aarch64-linux-gnu-strip"
+            elif command -v strip >/dev/null 2>&1; then
+                strip_cmd="strip"
+            fi
+            ;;
+        armv7-linux-androideabi)
+            # Android ARMv7
+            if command -v arm-linux-androideabi-strip >/dev/null 2>&1; then
+                strip_cmd="arm-linux-androideabi-strip"
+            elif [[ -n "${ANDROID_NDK_HOME:-}" ]]; then
+                strip_cmd="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/*/bin/llvm-strip"
+            fi
+            ;;
+        aarch64-linux-android)
+            # Android ARM64
+            if command -v aarch64-linux-android-strip >/dev/null 2>&1; then
+                strip_cmd="aarch64-linux-android-strip"
+            elif [[ -n "${ANDROID_NDK_HOME:-}" ]]; then
+                strip_cmd="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/*/bin/llvm-strip"
+            fi
+            ;;
+        i686-linux-android|x86_64-linux-android)
+            # Android x86/x86_64
+            if [[ -n "${ANDROID_NDK_HOME:-}" ]]; then
+                strip_cmd="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/*/bin/llvm-strip"
+            fi
+            ;;
+        *)
+            # Fallback to generic strip if available
+            if command -v strip >/dev/null 2>&1; then
+                strip_cmd="strip"
+            fi
+            ;;
+    esac
+
+    if [[ -n "$strip_cmd" ]]; then
+        set +e
+        $strip_cmd $strip_args "$file" 2>/dev/null
+        if [[ $? -eq 0 ]]; then
+            info "Stripped: $(basename "$file")"
+        else
+            warn "Failed to strip: $(basename "$file")"
+        fi
+        set -e
+    else
+        warn "No strip command available for $triple"
+    fi
+}
+
 copy_lib() {
     local triple="$1"
     local libpath_a="$ROOT_DIR/target/$triple/release/libresvg.so"  # Unix-like naming
@@ -40,7 +118,9 @@ copy_lib() {
     if [[ -n "$chosen" ]]; then
         mkdir -p "$dest"
         cp -f "$chosen" "$dest/"
-        info "Exported $triple -> $dest/$(basename "$chosen")"
+        local dest_file="$dest/$(basename "$chosen")"
+        info "Exported $triple -> $dest_file"
+        strip_lib "$dest_file" "$triple"
     else
         warn "Artifact not found: $libpath_a or $libpath_lib (skip)"
     fi
@@ -55,7 +135,9 @@ copy_android_lib() {
     if [[ -f "$libpath_so" ]]; then
         mkdir -p "$dest"
         cp -f "$libpath_so" "$dest/"
+        local dest_file="$dest/libresvg.so"
         info "Exported Android $abi -> $dest/"
+        strip_lib "$dest_file" "$triple"
     else
         warn "Android artifact not found: $libpath_so (skip)"
     fi

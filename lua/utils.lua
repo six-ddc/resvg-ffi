@@ -265,13 +265,10 @@ function M.load_library()
     --- Build paths to try
     local paths = {}
 
-    -- If in Love2D, check prebuilt directory first using auto-detected module base
+    -- If in Love2D, check prebuilt directory using auto-detected module base
     if love then
-        -- Try module-relative prebuilt path (works for any location: lib/resvg/, resvg/, etc.)
+        -- Try module-relative prebuilt path (location-agnostic, works anywhere)
         table.insert(paths, module_base .. "prebuilt/" .. platform_dir .. "/" .. lib_name)
-        -- Fallback paths for backward compatibility
-        table.insert(paths, "resvg/prebuilt/" .. platform_dir .. "/" .. lib_name)
-        table.insert(paths, "lib/resvg/prebuilt/" .. platform_dir .. "/" .. lib_name)
     end
 
     -- Standalone paths

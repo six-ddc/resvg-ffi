@@ -178,9 +178,32 @@ local function load_system_library(os_name, arch)
     error("Failed to load resvg library")
 end
 
+--- Detect the base directory of this module
+--- This allows finding prebuilt libraries relative to the module location
+--- @return string|nil Base path to the resvg module (e.g., "lib/resvg/" or "./")
+local function detect_module_base_path()
+    -- Try to detect where this utils.lua file is located
+    local debug_info = debug.getinfo(1, "S")
+    if debug_info and debug_info.source then
+        local source = debug_info.source
+        -- Remove leading @ if present
+        if source:sub(1, 1) == "@" then
+            source = source:sub(2)
+        end
+        -- Get the directory containing this file
+        -- source should be something like "lib/resvg/lua/utils.lua"
+        local base = source:match("^(.*/)[^/]+$") or ""
+        -- Remove "lua/" from the end to get the module base
+        base = base:gsub("lua/$", "")
+        return base
+    end
+    return nil
+end
+
 --- Load the resvg dynamic library
 --- Tries multiple paths to find the library
 --- Supports both standalone usage and Love2D integration
+--- Automatically detects module location for prebuilt libraries
 --- @return ffi.namespace* FFI library handle
 --- @function load_library
 function M.load_library()
@@ -198,6 +221,9 @@ function M.load_library()
         os_name = (jit and jit.os) or "unknown"
         arch = (jit and jit.arch) or "unknown"
     end
+
+    -- Detect module base path for intelligent prebuilt location
+    local module_base = detect_module_base_path() or ""
 
     --- Map jit.os and jit.arch to prebuilt directory names
     local platform_map = {
@@ -239,11 +265,13 @@ function M.load_library()
     --- Build paths to try
     local paths = {}
 
-    -- If in Love2D, check prebuilt directory first
+    -- If in Love2D, check prebuilt directory first using auto-detected module base
     if love then
-        -- Try prebuilt paths with proper module prefix
+        -- Try module-relative prebuilt path (works for any location: lib/resvg/, resvg/, etc.)
+        table.insert(paths, module_base .. "prebuilt/" .. platform_dir .. "/" .. lib_name)
+        -- Fallback paths for backward compatibility
         table.insert(paths, "resvg/prebuilt/" .. platform_dir .. "/" .. lib_name)
-        table.insert(paths, "lua/prebuilt/" .. platform_dir .. "/" .. lib_name)
+        table.insert(paths, "lib/resvg/prebuilt/" .. platform_dir .. "/" .. lib_name)
     end
 
     -- Standalone paths

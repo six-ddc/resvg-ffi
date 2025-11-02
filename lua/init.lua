@@ -3,8 +3,17 @@
 --- @module 'resvg'
 
 local ffi = require("ffi")
-local ffi_defs = require("ffi_defs")
-local utils = require("utils")
+
+-- Get module path prefix for loading sibling modules
+-- This handles both "resvg" (via package.path) and "lib.resvg" style requires
+local module_path = (...):match("(.-)[^%.]+$")
+if module_path == "" then
+    -- When loaded as "resvg" via package.path, check if we're actually in lib/resvg
+    -- This happens when package.path includes ";lib/?/init.lua"
+    module_path = "lib.resvg."
+end
+local ffi_defs = require(module_path .. "ffi_defs")
+local utils = require(module_path .. "utils")
 
 --- Load the dynamic library
 local C = utils.load_library()
@@ -26,15 +35,21 @@ function M.init_log()
 end
 
 --- Returns version information
---- Version is hardcoded to match the library build
+--- Note: Version information should be obtained from the C library header
+--- This is a fallback when header constants are not available
 --- @return table Version information with major, minor, patch and string fields
 --- @function version
 function M.version()
+    -- Try to get version from FFI constants if available
+    local major = ffi_defs.C and ffi_defs.C.RESVG_MAJOR_VERSION or 0
+    local minor = ffi_defs.C and ffi_defs.C.RESVG_MINOR_VERSION or 45
+    local patch = ffi_defs.C and ffi_defs.C.RESVG_PATCH_VERSION or 1
+
     return {
-        major = 0,
-        minor = 45,
-        patch = 1,
-        string = "0.45.1"
+        major = major,
+        minor = minor,
+        patch = patch,
+        string = string.format("%d.%d.%d", major, minor, patch)
     }
 end
 
@@ -475,6 +490,53 @@ function Tree:render(width, height, transform)
 
     --- Return Pixmap object
     return M.Pixmap.from_raw(pixmap, width, height)
+end
+
+--- Renders the render tree directly to an external buffer (zero-copy)
+--- This method allows rendering directly to pre-allocated memory, avoiding intermediate buffers
+--- Useful for rendering to Love2D ImageData or other external buffers
+--- @param width number Pixmap width in pixels
+--- @param height number Pixmap height in pixels
+--- @param buffer ffi.cdata* FFI cdata pointer to output buffer (must be width * height * 4 bytes, RGBA8)
+--- @param transform table|Transform|nil Root SVG transform, can be used to position SVG inside the pixmap
+--- @function Tree:render_to_buffer
+function Tree:render_to_buffer(width, height, buffer, transform)
+    -- Validate input dimensions
+    if type(width) ~= "number" or type(height) ~= "number" then
+        error("Width and height must be numbers", 2)
+    end
+    if width <= 0 or height <= 0 then
+        error("Width and height must be positive", 2)
+    end
+    if width > 65535 or height > 65535 then
+        error("Width and height must be less than 65536", 2)
+    end
+    if not buffer then
+        error("Buffer cannot be nil", 2)
+    end
+
+    width = math.floor(width)
+    height = math.floor(height)
+
+    --- Process transform
+    local t
+    if transform then
+        if type(transform) == "table" then
+            -- Accept either a plain matrix table {a,b,c,d,e,f} or a Transform instance with `.data`
+            if transform.data then
+                t = transform.data
+            else
+                t = utils.table_to_transform(transform)
+            end
+        else
+            t = transform
+        end
+    else
+        t = C.resvg_transform_identity()
+    end
+
+    --- Render directly to the provided buffer (zero-copy)
+    C.resvg_render(self.ptr, t, width, height, buffer)
 end
 
 --- Renders a node by ID onto the image

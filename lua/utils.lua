@@ -169,32 +169,95 @@ function M.get_image_rendering_mode(mode)
     return mode or 0
 end
 
+local function load_system_library(os_name, arch)
+    local ok, result = pcall(ffi.load, "resvg")
+    if ok and result then
+        print(string.format("Loaded resvg library from system path (OS: %s, Arch: %s)", os_name, arch))
+        return result
+    end
+    error("Failed to load resvg library")
+end
+
 --- Load the resvg dynamic library
 --- Tries multiple paths to find the library
---- @return userdata FFI library handle
+--- Supports both standalone usage and Love2D integration
+--- @return ffi.namespace* FFI library handle
 --- @function load_library
 function M.load_library()
-    local lib_name
     local jit = rawget(_G, "jit") --- Safely get jit global variable
-    local os_name = (jit and jit.os) or "unknown"
+    local love = rawget(_G, "love") --- Check if running in Love2D
 
+    -- Determine OS and architecture
+    local os_name, arch
+    if love and love.system and love.system.getOS then
+        -- Love2D environment
+        os_name = love.system.getOS() or "unknown"
+        arch = (jit and jit.arch) or "unknown"
+    else
+        -- Standalone Lua/LuaJIT environment
+        os_name = (jit and jit.os) or "unknown"
+        arch = (jit and jit.arch) or "unknown"
+    end
+
+    --- Map jit.os and jit.arch to prebuilt directory names
+    local platform_map = {
+        --- OS mappings (Love2D and jit.os naming)
+        ["OS X"] = "apple-darwin",
+        ["OSX"] = "apple-darwin",
+        ["Darwin"] = "apple-darwin",
+        ["Linux"] = "unknown-linux-gnu",
+        ["Windows"] = "pc-windows-msvc",
+        ["Android"] = "linux-android",
+
+        --- Architecture mappings
+        ["x64"] = "x86_64",
+        ["x86"] = "i686",
+        ["arm64"] = "aarch64",
+        ["arm"] = "armv7",
+    }
+
+    --- Special handling for Android: use system paths only
+    if os_name == "Android" then
+        return load_system_library(os_name, arch)
+    end
+
+    --- Determine platform string
+    local os_suffix = platform_map[os_name] or "unknown-linux-gnu"
+    local arch_prefix = platform_map[arch] or arch
+    local platform_dir = arch_prefix .. "-" .. os_suffix
+
+    --- Determine library file extension
+    local lib_name
     if os_name == "Windows" then
         lib_name = "resvg.dll"
-    elseif os_name == "OSX" or os_name == "Darwin" then
+    elseif os_name == "OS X" or os_name == "OSX" or os_name == "Darwin" then
         lib_name = "libresvg.dylib"
     else
         lib_name = "libresvg.so"
     end
 
-    --- Try multiple possible paths
-    local paths = {
-        "./" .. lib_name,                          --- Current directory with explicit ./
-        lib_name,                                  --- Current directory (system path)
-        "./lua/" .. lib_name,                      --- lua subdirectory
-        "../../target/release/" .. lib_name,       --- Rust release build directory
-        "../../target/debug/" .. lib_name,         --- Rust debug build directory
-    }
-    
+    --- Build paths to try
+    local paths = {}
+
+    -- If in Love2D, check prebuilt directory first
+    if love then
+        -- Try prebuilt paths with proper module prefix
+        table.insert(paths, "resvg/prebuilt/" .. platform_dir .. "/" .. lib_name)
+        table.insert(paths, "lua/prebuilt/" .. platform_dir .. "/" .. lib_name)
+    end
+
+    -- Standalone paths
+    table.insert(paths, "./prebuilt/" .. platform_dir .. "/" .. lib_name)
+    table.insert(paths, "./" .. lib_name)
+    table.insert(paths, lib_name)
+    table.insert(paths, "./lua/" .. lib_name)
+
+    -- Development paths for building
+    if not love then
+        table.insert(paths, "../../target/release/" .. lib_name)
+        table.insert(paths, "../../target/debug/" .. lib_name)
+    end
+
     -- Add package path search if available
     if package.searchpath then
         local pkg_path = package.searchpath("resvg", package.cpath)
@@ -203,27 +266,22 @@ function M.load_library()
         end
     end
 
+    --- Try loading from each path
     local last_error = ""
     for _, path in ipairs(paths) do
         local ok, result = pcall(ffi.load, path)
         if ok and result then
-            -- Successfully loaded library
+            print(string.format("Loaded resvg library from: %s (OS: %s, Arch: %s)",
+                path, os_name, arch))
             return result
         else
             last_error = result or "unknown error"
         end
     end
 
-    --- If all fail, try system paths as last resort
-    local ok, result = pcall(ffi.load, "resvg")
-    if ok and result then
-        return result
-    end
-    
-    --- All attempts failed, provide helpful error message
-    error(string.format(
-        "Failed to load resvg library. Tried paths: %s. Last error: %s", 
-        table.concat(paths, ", "), last_error or "system load failed"), 2)
+    --- Last resort: try system paths
+    print(string.format("Warning: Could not find prebuilt library for %s, trying system paths", platform_dir))
+    return load_system_library(os_name, arch)
 end
 
 --- Create identity transform
